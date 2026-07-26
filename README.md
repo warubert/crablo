@@ -4,7 +4,7 @@ Um dungeon crawler isométrico minimalista feito em Rust, onde você controla um
 
 ## Screenshot
 
-> Mapa isométrico 20×20 com paredes em 3D, herói, monstros e textos flutuantes de dano.
+![Crablo gameplay](assets/screenshot.png)
 
 ## Como funciona
 
