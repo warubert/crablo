@@ -22,7 +22,15 @@ struct Monster {
     x: usize,
     y: usize,
     hp: i32,
-    cd: i32,
+    cd: f32,
+}
+
+//Floating text
+struct DmgText {
+    x: f32,
+    y: f32,
+    dmg: i32,
+    life: f32
 }
 
 //Math Helper
@@ -147,6 +155,7 @@ struct Game {
     path: Vec<(usize, usize)>,
     player_cd: f32,
     monsters: Vec<Monster>,
+    texts: Vec<DmgText>,
 }
 
 impl Game {
@@ -173,10 +182,11 @@ impl Game {
             path: vec![],
             player_cd: 0.0,
             monsters: vec![
-                Monster {x: 8, y: 8, hp: 30, cd: 0},
-                Monster {x: 12, y: 4, hp: 30, cd: 0},
-                Monster {x: 15, y: 12, hp: 30, cd: 0},
+                Monster {x: 8, y: 8, hp: 30, cd: 0.},
+                Monster {x: 12, y: 4, hp: 30, cd: 0.},
+                Monster {x: 15, y: 12, hp: 30, cd: 0.},
             ],
+            texts: vec![],
         }
     }
 
@@ -185,6 +195,13 @@ impl Game {
         if is_key_pressed(KeyCode::Space) {
             return true;
         }
+
+        //update text animations
+        self.texts.retain_mut(|t| {
+            t.life -= dt;
+            t.y -= 20. * dt;
+            t.life > 0.
+        });
 
         //mouse input logic
         if is_mouse_button_pressed(MouseButton::Left) {
@@ -205,14 +222,38 @@ impl Game {
             if self.player_cd <= 0. {
                 self.player_cd = 0.15;
 
-                let next_step = self.path[0];
-                self.px = next_step.0;
-                self.py = next_step.1;
-                self.path.remove(0);
+                let (nx, ny) = self.path[0];
+
+                //combat logic for player
+                if let Some(i) = self.monsters.iter().position(|m| m.x == nx && m.y == ny) {
+                    //attack monster
+                    self.damage_monster(i, 10);
+                    //stop moving
+                    self.path.clear();
+                } else {
+                    //move player
+                    self.path.remove(0);
+                    self.px = nx;
+                    self.py = ny;
+                }
             }
         }
 
         false
+    }
+
+    //helper function to damage a monster
+    fn damage_monster(&mut self, idx: usize, dmg: i32) {
+        self.monsters[idx].hp -= dmg;
+
+        //spawn text
+        let (sx, sy) = to_screen(self.monsters[idx].x, self.monsters[idx].y, self.cam);
+        self.texts.push(DmgText { x: sx, y: sy, dmg, life: 1.0 });
+
+        //kill logic
+        if self.monsters[idx].hp <= 0 {
+            self.monsters.remove(idx);
+        }
     }
 
     fn draw(&self) {
@@ -239,6 +280,11 @@ impl Game {
         //draw monsters
         for monster in &self.monsters {
             draw_stickman(monster.x, monster.y, self.cam, true);
+        }
+
+        //draw floating texts
+        for text in &self.texts {
+            draw_text(format!("-{}", text.dmg), text.x, text.y, 20., RED);
         }
     }
 }
