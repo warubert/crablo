@@ -30,7 +30,7 @@ struct DmgText {
     x: f32,
     y: f32,
     dmg: i32,
-    life: f32
+    life: f32,
 }
 
 //Math Helper
@@ -41,17 +41,26 @@ fn to_screen(x: usize, y: usize, cam: (f32, f32)) -> (f32, f32) {
     )
 }
 
-fn to_tile(sx :f32, sy:f32, cam: (f32, f32)) -> (usize, usize) {
+fn to_tile(sx: f32, sy: f32, cam: (f32, f32)) -> (usize, usize) {
     let (ax, ay) = (sx - cam.0, sy - cam.1);
 
     (
         ((ax / TILE_SIZE.0 + ay / TILE_SIZE.1) / 2.) as usize,
-        ((ay / TILE_SIZE.1 - ax / TILE_SIZE.0) / 2.)  as usize,
+        ((ay / TILE_SIZE.1 - ax / TILE_SIZE.0) / 2.) as usize,
     )
 }
 
+//calculate Manhattan distance between two points
+fn dist(p1: (usize, usize), p2: (usize, usize)) -> i32 {
+    (p1.0 as i32 - p2.0 as i32).abs() + (p1.1 as i32 - p2.1 as i32).abs()
+}
+
 //Pathfinder algorithm
-fn bfs(map: &[[Tile; MAP]; MAP], start: (usize, usize), goal: (usize, usize)) -> Vec<(usize, usize)> {
+fn bfs(
+    map: &[[Tile; MAP]; MAP],
+    start: (usize, usize),
+    goal: (usize, usize),
+) -> Vec<(usize, usize)> {
     let mut q = VecDeque::from([start]);
     let mut visited = [[false; MAP]; MAP];
     visited[start.1][start.0] = true;
@@ -94,7 +103,7 @@ fn draw_stickman(x: usize, y: usize, cam: (f32, f32), enemy: bool) {
     draw_ellipse(sx, sy + 3., 10., 5., 0., Color::new(0., 0., 0., 0.2));
 
     //head
-    if enemy{
+    if enemy {
         draw_line(sx - 5., sy - 32., sx, sy - 30., 2., BLACK);
         draw_line(sx + 5., sy - 32., sx, sy - 30., 2., BLACK);
     } else {
@@ -156,6 +165,7 @@ struct Game {
     player_cd: f32,
     monsters: Vec<Monster>,
     texts: Vec<DmgText>,
+    hp: i32,
 }
 
 impl Game {
@@ -182,17 +192,33 @@ impl Game {
             path: vec![],
             player_cd: 0.0,
             monsters: vec![
-                Monster {x: 8, y: 8, hp: 30, cd: 0.},
-                Monster {x: 12, y: 4, hp: 30, cd: 0.},
-                Monster {x: 15, y: 12, hp: 30, cd: 0.},
+                Monster {
+                    x: 8,
+                    y: 8,
+                    hp: 30,
+                    cd: 0.,
+                },
+                Monster {
+                    x: 12,
+                    y: 4,
+                    hp: 30,
+                    cd: 0.,
+                },
+                Monster {
+                    x: 15,
+                    y: 12,
+                    hp: 30,
+                    cd: 0.,
+                },
             ],
             texts: vec![],
+            hp: 100,
         }
     }
 
     fn update(&mut self, dt: f32) -> bool {
         // Update game logic here
-        if is_key_pressed(KeyCode::Space) {
+        if self.hp <= 0 {
             return true;
         }
 
@@ -205,7 +231,7 @@ impl Game {
 
         //mouse input logic
         if is_mouse_button_pressed(MouseButton::Left) {
-            let (mx, my ) = mouse_position();
+            let (mx, my) = mouse_position();
             let (tx, ty) = to_tile(mx, my, self.cam);
 
             //check if the click is inside the map bounds
@@ -239,6 +265,42 @@ impl Game {
             }
         }
 
+        //Monster Logic
+        //check occupied tiles to monsters dont stack
+        let occupied: Vec<_> = self
+            .monsters
+            .iter()
+            .map(|m| (m.x, m.y))
+            .chain(std::iter::once((self.px, self.py)))
+            .collect();
+
+        for i in 0..self.monsters.len() {
+            self.monsters[i].cd -= dt;
+            if self.monsters[i].cd <= 0. {
+                self.monsters[i].cd = 1.; //slow
+
+                let (mx, my) = (self.monsters[i].x, self.monsters[i].y);
+                let d = dist((mx, my), (self.px, self.py));
+
+                if d == 1 {
+                    self.hp -= 5;
+                    let (sx, sy) = to_screen(self.px, self.py, self.cam);
+                    self.texts.push(DmgText {
+                        x: sx,
+                        y: sy - 40.,
+                        dmg: 5,
+                        life: 1.0,
+                    });
+                } else {
+                    //chase player
+                    let path = bfs(&self.map, (mx, my), (self.px, self.py));
+                    if path.len() > 1 && !occupied.contains(&path[0]) {
+                        self.monsters[i].x = path[0].0;
+                        self.monsters[i].y = path[0].1;
+                    }
+                }
+            }
+        }
         false
     }
 
@@ -248,7 +310,12 @@ impl Game {
 
         //spawn text
         let (sx, sy) = to_screen(self.monsters[idx].x, self.monsters[idx].y, self.cam);
-        self.texts.push(DmgText { x: sx, y: sy, dmg, life: 1.0 });
+        self.texts.push(DmgText {
+            x: sx,
+            y: sy,
+            dmg,
+            life: 1.0,
+        });
 
         //kill logic
         if self.monsters[idx].hp <= 0 {
@@ -286,6 +353,15 @@ impl Game {
         for text in &self.texts {
             draw_text(format!("-{}", text.dmg), text.x, text.y, 20., RED);
         }
+
+        //HUD
+        draw_text(
+            format!("HP: {}", self.hp),
+            20.,
+            screen_height() - 40.,
+            30.,
+            BLACK,
+        );
     }
 }
 
@@ -321,7 +397,8 @@ async fn main() {
                     Color::new(1., 1., 1., 0.7),
                 );
                 draw_text("GAME OVER", 100., 100., 60., RED);
-                draw_text("Enter para reiniciar", 100., 150., 20., GRAY);
+                draw_text(format!("HP: {}", game.hp), 100., 130., 30., BLACK);
+                draw_text("Enter para reiniciar", 100., 160., 20., GRAY);
 
                 if is_key_pressed(KeyCode::Enter) {
                     state = AppState::Menu;
